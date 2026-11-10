@@ -191,8 +191,12 @@ td,th{padding:4px 6px;border-bottom:1px solid var(--line);text-align:left;}
 .tut-body{font-size:13.5px;line-height:1.85;color:#cfd6e4;}
 .tut-body b{color:#f0d98a;}
 .tut-body p{margin:6px 0;}
-.tut-dots{display:flex;gap:6px;margin-top:14px;justify-content:center;}
-.tut-dot{width:8px;height:8px;border-radius:50%;background:#39415a;}
+.tut-body ul,.tut-body ol{margin:6px 0 6px 18px;padding:0;}
+.tut-body li{margin:3px 0;}
+.tut-body p:last-child{margin-bottom:0;}
+.tut-step{font-size:11px;color:var(--gold);letter-spacing:1px;margin:0 0 6px;}
+.tut-dots{display:flex;gap:4px;margin-top:14px;justify-content:center;flex-wrap:wrap;}
+.tut-dot{width:6px;height:6px;border-radius:50%;background:#39415a;}
 .tut-dot.on{background:#8b9cf6;}
 
 /* ===== 职业系统 · 战术终端 ===== */
@@ -458,6 +462,7 @@ button:active{transform:scale(.965);filter:brightness(1.18);}
     <div class="muted center">进度加载至 100.0%</div>
     <label class="agree"><input type="checkbox" id="agreeBox" onchange="toggleStart()"> 我已阅读并同意《罗德岛干员入职及生命安全免责协议》</label>
     <button class="big-btn" id="startBtn" disabled onclick="startLife()">开始新生</button>
+    <button class="ch" id="continueBtn" style="display:none;margin:8px 0 0;width:100%;text-align:left;padding:10px 12px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--txt);font-size:14px;" onclick="openSavePanel()"><b>📂 继续游戏</b> <span class="cost">读取本地存档</span></button>
     <button class="ch" style="margin:10px 0 0;width:100%;text-align:left" onclick="openTutorial()"><b>📖 新手教程</b> <span class="cost">第一次玩？先花 1 分钟看看</span></button>
     <div class="advice">
       《泰拉生存忠告》<br>
@@ -1868,6 +1873,7 @@ function startYear(){
   S.flags.renamePrompted=true;
   promptAdultRename();
  }
+ autoSaveGame();
 }
 function renderYear(){ recomputeGear(); renderTopbar(); renderEventStream(); renderCharPanel(); renderFuncPanel(); renderSixStats(); }
 function renderTopbar(){
@@ -4946,6 +4952,168 @@ function saveEpitaph(){
  log('你把遗言刻在了墓碑上。','good');
  closeOverlay();
 }
+/* ================= 存档 / 读档 ================= */
+const SAVE_SLOTS=[
+ {id:'auto',name:'自动存档'},
+ {id:'1',name:'存档 1'},
+ {id:'2',name:'存档 2'},
+ {id:'3',name:'存档 3'}
+];
+const SAVE_PREFIX='ark_save_';
+function saveKey(slot){ return SAVE_PREFIX+slot; }
+function readSave(slot){
+ try{
+  const raw=localStorage.getItem(saveKey(slot));
+  if(!raw) return null;
+  const p=JSON.parse(raw);
+  if(!p||!p.state||typeof p.state!=='object') return null;
+  return p;
+ }catch(e){ return null; }
+}
+function saveLabel(state){
+ const s=state||{};
+ const job=s.job==='rhodes'?('罗德岛'+(RHODES_RANKS[s.rhodesRank]||'预备干员')):(careerById(s.job)?careerById(s.job).name:(jobById(s.job)||{}).name||'无业');
+ return `${s.displayName||s.name||'无名'} · ${s.age||0}岁 · 泰拉历${s.year||'?'} · ${job}`;
+}
+function saveGame(slot){
+ const s=S;
+ if(!s||!s.parents||!s.alive){ alert('开始人生后才能存档。'); return; }
+ if(slot==='auto'){ alert('自动存档由系统每年写入。'); return; }
+ if(s.currentEvent&&s.currentEvent.choices){ alert('请先处理当前事件，再保存存档。'); return; }
+ try{
+  const state=JSON.parse(JSON.stringify(s));
+  state.currentEvent=null;
+  const payload={version:1,savedAt:Date.now(),label:saveLabel(state),state};
+  localStorage.setItem(saveKey(slot),JSON.stringify(payload));
+  refreshContinueButton();
+  openOverlay(renderSavePanel());
+ }catch(e){ alert('存档失败：浏览器本地存储不可用或空间不足。'); }
+}
+function autoSaveGame(){
+ try{
+  const s=S;
+  if(!s||!s.parents||!s.alive) return;
+  const state=JSON.parse(JSON.stringify(s));
+  state.currentEvent=null;
+  localStorage.setItem(saveKey('auto'),JSON.stringify({version:1,savedAt:Date.now(),label:saveLabel(state),state}));
+  refreshContinueButton();
+ }catch(e){}
+}
+function normalizeSaveState(raw){
+ const d=newState();
+ const s=Object.assign({},d,raw||{});
+ s.flags=Object.assign({},d.flags,raw.flags||{});
+ s.travelStatus=Object.assign({},d.travelStatus,raw.travelStatus||{});
+ s.residency=Object.assign({},d.residency,raw.residency||{});
+ s.bank=Object.assign({},d.bank,raw.bank||{});
+ s.bills=Object.assign({},d.bills,raw.bills||{});
+ s.dailyTasks=Object.assign({},d.dailyTasks,raw.dailyTasks||{});
+ s.familyControl=Object.assign({},d.familyControl,raw.familyControl||{});
+ s.properties=Array.isArray(raw.properties)?raw.properties:[];
+ s.vehicles=Array.isArray(raw.vehicles)?raw.vehicles:[];
+ s.loans=Array.isArray(raw.loans)?raw.loans:[];
+ s.friends=Array.isArray(raw.friends)?raw.friends:[];
+ s.children=Array.isArray(raw.children)?raw.children:[];
+ s.famous=Array.isArray(raw.famous)?raw.famous:[];
+ s.inventory=Array.isArray(raw.inventory)?raw.inventory:[];
+ s.log=Array.isArray(raw.log)?raw.log:[];
+ if(!s.rhodesBranch) s.rhodesBranch='field';
+ if(s.washStage==null) s.washStage=0;
+ if(s.washTarget===undefined) s.washTarget=null;
+ if(s.washYear==null) s.washYear=0;
+ if(s.washDone==null) s.washDone=false;
+ if(!s.timelineState) s.timelineState='default';
+ if(s.sanktaEmpathyStable==null) s.sanktaEmpathyStable=true;
+ if(!s.knownSameOrigin) s.knownSameOrigin={};
+ s.currentEvent=null;
+ return s;
+}
+function applyLoadedState(state){
+ S=normalizeSaveState(state);
+ currentChoices=[];
+ closeOverlay();
+ $('title').classList.remove('on');
+ $('end').classList.remove('on');
+ $('game').classList.add('on');
+ if(window.__arkAudio) window.__arkAudio.refresh(true);
+ renderYear();
+ refreshContinueButton();
+}
+function loadGame(slot){
+ const p=readSave(slot);
+ if(!p){ alert('这个存档槽是空的。'); return; }
+ if(!confirm('读取存档会覆盖当前未保存的进度，继续？')) return;
+ applyLoadedState(p.state);
+}
+function deleteSave(slot){
+ if(!confirm('确定删除这个存档？')) return;
+ try{ localStorage.removeItem(saveKey(slot)); }catch(e){}
+ refreshContinueButton();
+ openOverlay(renderSavePanel());
+}
+function exportSave(){
+ const s=S;
+ if(!s||!s.parents||!s.alive){ alert('开始人生后才能导出存档。'); return; }
+ try{
+  const state=JSON.parse(JSON.stringify(s)); state.currentEvent=null;
+  const payload={version:1,savedAt:Date.now(),label:saveLabel(state),state};
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download='arknights-life-save-'+((state.name||'save').replace(/[^\w\u4e00-\u9fa5-]/g,'_'))+'-'+state.year+'.json';
+  document.body.appendChild(a); a.click(); if(a.parentNode) a.parentNode.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+ }catch(e){ alert('导出失败。'); }
+}
+function importSaveFile(input){
+ const f=input.files&&input.files[0]; if(!f) return;
+ const reader=new FileReader();
+ reader.onload=()=>{
+  try{
+   const p=JSON.parse(reader.result);
+   const st=p&&p.state?p.state:p;
+   if(!st||typeof st!=='object'||st.alive===false) throw new Error('bad');
+   if(!confirm('导入存档会覆盖当前未保存的进度，继续？')) return;
+   applyLoadedState(st);
+  }catch(e){ alert('存档文件无效。'); }
+ };
+ reader.readAsText(f);
+ input.value='';
+}
+function latestSave(){
+ let best=null;
+ SAVE_SLOTS.forEach(slot=>{ const p=readSave(slot.id); if(p&&(!best||p.savedAt>best.savedAt)) best=Object.assign({slot:slot.id},p); });
+ return best;
+}
+function refreshContinueButton(){
+ const b=$('continueBtn'); if(!b) return;
+ const p=latestSave();
+ if(!p){ b.style.display='none'; return; }
+ b.style.display='block';
+ b.innerHTML=`<b>📂 继续游戏</b> <span class="cost">${p.label||saveLabel(p.state)}</span>`;
+}
+function openSavePanel(){ openOverlay(renderSavePanel()); }
+function renderSavePanel(){
+ const canSave=!!(S&&S.parents&&S.alive);
+ let html=`<h3>💾 存档 / 读档</h3>`;
+ html+=`<div class="muted" style="margin-bottom:8px;">存档保存在当前浏览器。换设备或清除浏览器数据前，请先用“导出存档”。</div>`;
+ if(canSave) html+=`<div class="noble-card" style="margin-bottom:8px;"><div class="noble-sub">当前进度：${saveLabel(S)}</div></div>`;
+ SAVE_SLOTS.forEach(slot=>{
+  const p=readSave(slot.id); const st=p&&p.state;
+  html+=`<div class="noble-card"><div class="noble-head"><span class="noble-ic">${slot.id==='auto'?'🕒':'💾'}</span><span><span class="noble-name">${slot.name}</span><span class="noble-sub">${st?saveLabel(st):'空存档'}</span></span></div>`;
+  if(p) html+=`<div class="muted" style="font-size:11px;">保存于 ${new Date(p.savedAt).toLocaleString('zh-CN')}</div>`;
+  html+=`<div class="purchase-btns" style="margin-top:8px;">`;
+  if(canSave&&slot.id!=='auto') html+=`<button class="prop-buy" onclick="saveGame('${slot.id}')">保存到此槽</button>`;
+  if(p) html+=`<button class="prop-buy" onclick="loadGame('${slot.id}')">读取</button><button class="prop-cancel" onclick="deleteSave('${slot.id}')">删除</button>`;
+  html+=`</div></div>`;
+ });
+ html+=`<div class="purchase-btns" style="margin-top:10px;">`;
+ if(canSave) html+=`<button class="prop-buy" onclick="exportSave()">导出当前存档</button>`;
+ html+=`<label class="prop-buy" style="display:block;text-align:center;">导入存档文件<input type="file" accept=".json,application/json" style="display:none" onchange="importSaveFile(this)"></label>`;
+ html+=`</div>`;
+ html+=`<button class="small" onclick="closeOverlay()">关闭</button>`;
+ return html;
+}
 function renderMenuPanel(){
  let html=`<h3>⚙️ 系统菜单</h3>`;
  html+=`<button class="ch" onclick="location.reload()"><b>🌱 开始新人生</b> <span class="cost">放弃当前人生，重新开始</span></button>`;
@@ -4959,6 +5127,7 @@ function renderMenuPanel(){
  html+=`<button class="ch" onclick="closeOverlay();showLogOverlay()"><b>📖 查看一生日志</b> <span class="cost">完整流水账</span></button>`;
  html+=`<button class="ch" onclick="menuPlaceholder('时光机 · 周目回溯')"><b>⏳ 时光机 · 周目回溯</b> <span class="cost">后续开放</span></button>`;
  html+=`<button class="ch" onclick="menuPlaceholder('人生系列新作')"><b>🎬 人生系列新作</b> <span class="cost">后续开放</span></button>`;
+ html+=`<button class="ch" onclick="openSavePanel()"><b>💾 存档 / 读档</b> <span class="cost">保存当前人生，或读取已有进度</span></button>`;
  html+=`<button class="ch" onclick="openSettings()"><b>⚙️ 设置 / 联系我们</b> <span class="cost">音频、界面与反馈</span></button>`;
  html+=`<button class="ch" onclick="openCapsuleImport()"><b>📥 导入他人奇遇</b> <span class="cost">粘贴时光胶囊码，把别人的故事加入本地基因库</span></button>`;
  html+=`<button class="small" onclick="closeOverlay()">关闭</button>`;
@@ -7413,20 +7582,33 @@ function studyArts(){
 }
 /* ================= 新手教程 ================= */
 const TUTORIAL=[
- {t:'👋 欢迎来到泰拉',b:'<p>你将从出生开始，走完一生：每年先处理 <b>事件</b>，再用 <b>行动值 ⚡</b> 做选择，最后点右下角「▶ 下一年」。</p><p class="muted">一局大约 5–15 分钟；死亡后进入结算。</p>'},
- {t:'📊 底部六维',b:'<p>心情 / 健康 / 智商（学识）/ 情商（声望）/ 魅力（源石技艺）/ 道德（体魄）。</p><p><b>健康归零即死亡</b>；感染矿石病后健康栏会变红，结晶密度越高越危险。</p>'},
- {t:'⚡ 行动值怎么花',b:'<p>每年给固定点数：轻动作 1 点（休息、玩耍、陪伴、赠礼、购物），标准动作 2 点（学习、锻炼、工作、求职、晋升、加薪、项目），重动作 3 点（冒险、推进项目、罗德岛任务）。</p><p>差 1–2 点时若健康 &gt; 15 可以<b>透支</b>，每点扣 4 健康；<b>旅行不能透支</b>。年末剩余行动值会转成健康（最多 +5）。</p>'},
- {t:'🎲 事件与判定',b:'<p>每年开局可能弹出一件事（消耗 ⚡1）。选项里的判定由对应属性、声望与装备决定，成功和失败都有不同后果——不是每次都能全身而退。</p>'},
- {t:'💞 社交与婚育',b:'<p>人物卡上的「陪伴 / 赠礼」<b>每年各一次</b>，按对方性格加好感，数值会实时显示。</p><p>朋友好感 70 → 表白；恋人好感 80 → 进阶伴侣；伴侣 → 订婚/结婚 → 生育。也可以离婚、复婚，孩子长大后会自己选职业。</p>'},
- {t:'💼 职业与钱财',b:'<p>职业面板里求职、晋升、申请加薪、做项目。工作换来薪水，账单每年结算（税、水电、餐饮、教育等）。</p><p>声望高更容易晋升与加薪；富有也会慢慢转成声望。</p>'},
- {t:'🗺️ 大地与旅行',b:'<p>顶栏「大地 / 地图」或操作区可以出远门：官道稳、野路便宜、捷径快但危险。入境可能被拒——可以花龙门币打点，或者先攒声望。</p>'},
- {t:'🏆 目标与结局',b:'<p>活得越久、履历越传奇，最终的 <b>传奇度</b> 越高。成就墙里有隐藏结局，排行榜记录历代人生。</p><p class="muted">先随便活一辈子试试，再回头研究机制也没问题。</p>'}
+ {t:'👋 欢迎来到泰拉',b:'<p>你将从出生开始，一年一年活到老。目标是：<b>活得久、活得体面、留下故事</b>。</p><p>每一年只做三件事：<b>处理事件 → 花行动值 → 点“下一年”</b>。一局大约 5–15 分钟，死亡后进入结算。</p><p class="muted">第一次玩不用追求完美，先完整活一辈子。</p>'},
+ {t:'🚪 第一步：进入游戏',b:'<ol><li>先看首页三段法律声明。</li><li>勾选“我已阅读并同意……”。</li><li>点 <b>开始新生</b>。</li></ol><p>如果之前存过档，首页会出现 <b>📂 继续游戏</b>，点它再选存档。没有存档时按钮不会出现。</p>'},
+ {t:'🖥️ 主界面：先认清四个区域',b:'<ul><li><b>顶部图标</b>：背包、账单、任务、个人、商店、医疗、菜单。</li><li><b>中间事件流水账</b>：今年发生的事和可选择的事件。</li><li><b>左下角色面板</b>：年龄、职业、家庭、健康等。</li><li><b>右下操作区</b>：职业、财产、关系、活动、宠物、大地，以及 <b>▶ 下一年</b>。</li></ul><p>最底部是六维属性条。</p>'},
+ {t:'📊 六维属性：先看健康',b:'<p>底部六项是：<b>心情、健康、学识、声望、源石技艺、体魄</b>。</p><ul><li><b>健康</b>归零会死，最重要。</li><li><b>学识</b>决定考试、教育、部分职业。</li><li><b>声望</b>决定求职、晋升、社交、入境。</li><li><b>源石技艺</b>与感染者、术师、医疗有关。</li><li><b>体魄</b>决定体力活、战斗、部分职业。</li><li><b>心情</b>受家庭、伴侣、宠物影响。</li></ul>'},
+ {t:'⚡ 行动值：每年能花多少',b:'<p>事件流水账上方会显示 <b>⚡ 行动 x/x</b>。普通动作通常 1 点，学习/工作/晋升 2 点，冒险/项目/罗德岛任务 3 点。</p><p>行动值不够时，健康 &gt; 15 可以<b>透支 1–2 点</b>，每点扣 4 健康；<b>旅行不能透支</b>。</p><p>年末没用完的行动值会转成健康，最多 +5。所以别硬撑到 0。</p>'},
+ {t:'🔁 一年怎么过：固定四步',b:'<ol><li>看中间的事件，有选项就先选。</li><li>用行动值做想做的事：学习、工作、休息、社交、旅行。</li><li>点右下 <b>▶ 下一年</b>。</li><li>看年度账单，点 <b>进入下一年</b>。</li></ol><p class="muted">每年开始会自动存档一次。</p>'},
+ {t:'🎲 事件与选项：不要乱点',b:'<p>每年可能弹出一件事。选项后面会写消耗行动值、条件和可能的判定属性。</p><p>判定不是必成功：属性、声望、装备都会影响结果。失败可能扣健康、声望或钱，但通常不会立刻死。</p><p><b>带选项的事件没处理完时，手动存档会被阻止</b>；先选完再存。</p>'},
+ {t:'🧭 第一年推荐：照这个顺序做',b:'<ol><li>先处理事件，优先选不会大幅扣健康的。</li><li>点 <b>职业</b>，看有没有能入职的工作；没有就先学习。</li><li>点 <b>关系</b>，对父母用一次“陪伴”或“赠礼”。</li><li>点 <b>账单</b>，看今年收支。</li><li>剩余行动值可以休息或学习，然后点 <b>▶ 下一年</b>。</li></ol><p>第一年不要急着旅行、买房或借大额贷款。</p>'},
+ {t:'💾 存档与读档：一定要会',b:'<p>点顶部 <b>⚙️ 菜单 → 💾 存档 / 读档</b>。有 3 个手动槽和 1 个自动槽。</p><ul><li><b>保存到此槽</b>：覆盖该槽。</li><li><b>读取</b>：回到那个年份，会覆盖当前未保存进度。</li><li><b>导出/导入</b>：换浏览器或换设备时用 JSON 文件。</li></ul><p>存档只存在当前浏览器；清浏览器数据会丢，重要进度请导出。</p>'},
+ {t:'💼 职业：先找一份工作',b:'<p>点右下 <b>职业</b>，下方是人才市场。每张卡是一个职业分支，卡上会写文凭、属性、声望要求。</p><ol><li>选一张满足条件的卡。</li><li>点“应聘/入职”。</li><li>成功后看年薪、职级、工龄。</li></ol><p>没有合适工作就先提升学识/体魄，或先读书。罗德岛不会出现在人才市场，它是隐藏职业。</p>'},
+ {t:'📈 升职、加薪、项目',b:'<p>职业面板右上角有 <b>加薪 / 升职 / 辞职</b>。升职需要工龄和判定，失败也会消耗行动值。</p><p>项目控制台可以承接项目，推进消耗 3 行动；完成后有额外钱、声望，部分职业加贡献。</p><p>年薪会在年度账单里发放；晋升当年按新职级算。</p>'},
+ {t:'💰 钱与账单：别让自己破产',b:'<p>顶部金色数字是龙门币。点 <b>账单</b> 看年度收入与支出：税、水电、餐饮、房租、贷款、教育、医疗等。</p><ul><li>收入主要来自年薪、资产分红、租金。</li><li>支出过高会扣存款，严重会破产。</li><li>买房/买车可以全款或分期；分期每年还贷。</li></ul><p>第一年先留一点现金，不要把所有钱都花光。</p>'},
+ {t:'🎓 教育：想换职业先看学历',b:'<p>点左下角色面板里的 <b>教育终端</b>。它会按你所在城市显示本地学校。</p><ul><li>Lv1 启蒙、Lv2 专科、Lv3 本科/学院、Lv4 顶尖学位。</li><li>有年龄要求：Lv1 6 岁、Lv2 12 岁、Lv3 16 岁、Lv4 18 岁。</li><li>未成年时学费可能由父母支付；成年后自己付。</li><li>毕业后拿文凭，满足职业门槛才能入职。</li></ul>'},
+ {t:'💞 关系：父母、朋友、恋人',b:'<p>点右下 <b>关系</b>，再点人物卡进入详情。对同一个人：<b>陪伴每年 1 次、赠礼每年 1 次</b>。</p><p>好感提升后：朋友 70 → 表白；恋人 80 → 进阶伴侣；伴侣 → 订婚/结婚。失败会掉好感，别连续硬冲。</p><p>父母好感影响零花钱、学费代付和继承。</p>'},
+ {t:'👶 婚姻、怀孕与子女',b:'<p>结婚后，满足年龄和健康条件可以生育。女性怀孕期间行动值 -1，分娩有健康风险。</p><p>孩子会逐年长大，长大后自己选职业。子女会影响家庭支出，也可能带来心情和声望。</p><p>不想要孩子可以不生；离婚、复婚都在关系面板处理。</p>'},
+ {t:'🏥 健康、矿石病与医疗',b:'<p>健康归零即死亡。感染矿石病后健康条会变红，<b>源石结晶</b>越高越危险。</p><ul><li>点顶部 <b>医疗</b> 治疗、买抑制剂。</li><li>休息、减少透支、穿防护装备能保健康。</li><li>感染者找工作会受限制，部分国家直接禁止。</li></ul><p>不要为了多做一个动作把健康压到 10 以下。</p>'},
+ {t:'🗺️ 大地与旅行：出门前先看路',b:'<p>点右下 <b>大地</b>，选城市。路线分：</p><ul><li><b>官道</b>：稳，但贵/慢。</li><li><b>野路</b>：便宜，事件多。</li><li><b>捷径</b>：快，但危险，少年/暮年不可走。</li></ul><p>入境可能被拒；声望、许可证、通缉、戒严都会影响。旅行不能透支行动值。</p><p>新沃尔西尼 1099 年后开放；叙拉古老城与新城之间是短途。</p>'},
+ {t:'🏠 房产与车辆',b:'<p>点右下 <b>财产</b>。房产可以自住或出租，每年有维护费；车辆提供旅行加成。</p><ul><li>买房要首付，贷款每年还。</li><li>贵族房产/车辆需要贵族身份。</li><li>新沃尔西尼不承认贵族，贵族资产不可购买。</li><li>跨国购买要先搬家，资产不能随便带走。</li></ul>'},
+ {t:'👑 地位、家族与叙拉古',b:'<p>职业面板上方有 <b>社会地位</b> 条。满足职业/声望/财富条件可以加入本地体系，获得房产折扣和年度声望。</p><p>叙拉古家族有独立控制度，1099 年后逐年衰减；控制度归零会家族覆灭、成员流亡。家族成员可以走洗白链转新城公职。</p><p>新沃尔西尼居民不能加入家族；家族流亡者在旧城购物会加价。</p>'},
+ {t:'🐺 罗德岛、宠物与名人',b:'<p><b>罗德岛</b>是隐藏职业，不会出现在人才市场。通过名人邀请、切尔诺伯格选择、精英注视线或到岛申请加入；加入后分外勤/医疗/情报。</p><p><b>宠物</b>在右下“宠物”领养和互动，能提升心情/健康，也会老去。</p><p><b>名人</b>会在旅行、社交、事件中出现；好感够高可触发专属事件。</p>'},
+ {t:'🏆 结局、成就与新手清单',b:'<p>活得越久、经历越多，最终传奇度越高。成就墙和排行榜记录每局人生。</p><p><b>新手十步清单：</b></p><ol><li>勾选同意，开始新生。</li><li>看六维，记住健康。</li><li>处理第一个事件。</li><li>找一份工作或读书。</li><li>陪父母一次。</li><li>看一次账单。</li><li>保存到存档 1。</li><li>剩余行动值休息/学习。</li><li>点下一年，看年度结算。</li><li>活到成年后再考虑买房、结婚、旅行。</li></ol><p class="muted">教程可从菜单重看。祝你活得像个人。</p>'}
 ];
 let tutStep=0;
 function renderTutorial(){
  const s=TUTORIAL[tutStep], n=TUTORIAL.length;
  let dots=''; for(let i=0;i<n;i++) dots+=`<span class="tut-dot${i===tutStep?' on':''}"></span>`;
- return `<h3>📖 新手教程 · ${s.t}</h3><div class="tut-body">${s.b}</div>
+ return `<h3>📖 新手教程 · ${s.t}</h3><div class="tut-step">第 ${tutStep+1} / ${n} 步</div><div class="tut-body">${s.b}</div>
  <div class="tut-dots">${dots}</div>
  <div class="row" style="margin-top:12px;">
   <button class="ch" ${tutStep===0?'disabled':''} onclick="tutGo(-1)">← 上一步</button>
@@ -7435,7 +7617,7 @@ function renderTutorial(){
  </div>`;
 }
 function tutGo(d){ tutStep=Math.max(0,Math.min(TUTORIAL.length-1,tutStep+d)); openOverlay(renderTutorial()); }
-function tutFinish(){ try{ localStorage.setItem('ark_tutorialDone','1'); }catch(e){} closeOverlay(); }
+function tutFinish(){ try{ localStorage.setItem('ark_tutorialDone_v2','1'); }catch(e){} closeOverlay(); }
 function openTutorial(){ tutStep=0; openOverlay(renderTutorial()); }
 
 /* ================= 覆盖层 ================= */
@@ -7445,7 +7627,7 @@ function closeOverlay(){ $('overlay').classList.remove('on'); const b=$('overlay
 
 /* ================= 声明：进度条 + 同意开关 ================= */
 function toggleStart(){ $('startBtn').disabled = !$('agreeBox').checked; }
-window.addEventListener('load',()=>{ setTimeout(()=>{ const p=$('progressFill'); if(p) p.style.width='100%'; },150); try{ if(!localStorage.getItem('ark_tutorialDone')) setTimeout(()=>{ if(typeof openTutorial==='function') openTutorial(); },500); }catch(e){} });
+window.addEventListener('load',()=>{ setTimeout(()=>{ const p=$('progressFill'); if(p) p.style.width='100%'; },150); try{ if(!localStorage.getItem('ark_tutorialDone_v2')) setTimeout(()=>{ if(typeof openTutorial==='function') openTutorial(); },500); }catch(e){} refreshContinueButton(); });
 
 /* 初始化 */
 S=newState();
