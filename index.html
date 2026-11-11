@@ -1746,7 +1746,7 @@ function salaryWan(){
  if(c.id==='soldier'&&s.race==='kuranta') w*=0.5;
  return Math.max(0,w);
 }
-function salaryGame(){ return Math.round(salaryWan()*10); }
+function salaryGame(){ return Math.round(salaryWan()*10000);}
 function annualSalary(){ const s=S; if(s.job!=='rhodes'&&!careerById(s.job)) return 0; return Math.max(0, salaryGame()); }
 function fmtMoney(n){ return Math.floor(n).toLocaleString('zh-CN'); }
 function fmtWan(n){ return (Math.round(n*10)/10).toLocaleString('zh-CN'); }
